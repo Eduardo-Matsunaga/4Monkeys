@@ -1,0 +1,7 @@
+<svg width="200" height="50" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 50">
+  <!-- Text styling for "4Monkeys Setups" -->
+  <text x="0" y="30" font-family="Arial, sans-serif" font-weight="bold" font-size="24px" fill="#6A0DAD">
+    4
+    <tspan dx="5">Monkey Setups</tspan>
+  </text>
+</svg>
