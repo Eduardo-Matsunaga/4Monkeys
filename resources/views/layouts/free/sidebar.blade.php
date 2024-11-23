@@ -15,7 +15,7 @@
         <hr class="sidebar-divider my-0 bg-white">
 
         <div class="sidebar-card d-none d-lg-flex mt-5">
-            <img class="mb-2 sidebar-card-illustration" src="img/undraw_rocket.svg" alt="...">
+            <img class="sidebar-card-illustration mb-2" src="{{ asset('img/undraw_rocket.svg') }}" alt="foguete-avaliar">
             <p class="mb-2 text-center"><strong>Seha um Assiante Premium</strong> aproveite todas as funcionalidades</p>
             <a class="btn btn-success btn-sm" href="{{url('register')}}">Registrar-se</a>
         </div>
