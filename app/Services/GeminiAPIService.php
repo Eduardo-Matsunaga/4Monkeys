@@ -19,9 +19,9 @@ class GeminiAPIService
 
     }
 
-    public function getRecommendations(array $softwares, array $produtos)
+    public function getRecommendations(array $softwares)
     {
-        $prompt = $this->generatePrompt($softwares, $produtos);
+        $prompt = $this->generatePrompt($softwares);
 
         try {
             $client = \Gemini::client($this->apiKey);
@@ -78,39 +78,21 @@ class GeminiAPIService
 
 
 
-    protected function generatePrompt(array $softwares, array $produtos)
+    protected function generatePrompt(array $softwares)
     {
 
         $prompt = "Avalie os softwares selecionados e utilize como base para montar três desktops categorizados como bronze, silver e gold.\n\n";
         $prompt .= "Monte os desktops de forma que atendam aos requisitos mínimos dos softwares escolhidos, focando na custo-efetividade dos componentes utilizados.\n";
-        $prompt .= "Crie um arquivo JSON mostrando todos os produtos necessários para que cada desktop atenda os requisitos das categorias de acordo com os produtos cadastrados no banco de dados.\n\n";
+        $prompt .= "Crie um arquivo JSON mostrando todos os produtos necessários para que cada desktop atenda os requisitos das categorias.\n\n";
         $prompt .= "Certifique-se de que todos os componentes são compatíveis entre si e que cada desktop inclui os seguintes componentes essenciais: CPU, GPU, RAM, HD, Fonte, placa_mae e Cooler.\n\n";
         $prompt .= "Retorne os dados estruturados no seguinte formato JSON, mantendo apenas os nomes dos componentes e removendo qualquer informação adicional:\n\n";
         $prompt .= "{ \"desktops\": [ { \"categoria\": \"1\", \"componentes\": { \"CPU\": \"Nome do Produto\", \"GPU\": \"Nome do Produto\", \"RAM\": \"Nome do Produto\", \"Fonte\": \"Nome do Produto\", \"placa_mae\": \"Nome do Produto\", \"Cooler\": \"Nome do Produto\", \"HD\": \"Nome do Produto\" }, \"total\": VALOR_DA_SOMA_TOTAL_DOS_ITENS_SELECIONADOS }, { \"categoria\": \"2\", \"componentes\": { \"CPU\": \"Nome do Produto\", \"GPU\": \"Nome do Produto\", \"RAM\": \"Nome do Produto\", \"Fonte\": \"Nome do Produto\", \"placa_mae\": \"Nome do Produto\", \"Cooler\": \"Nome do Produto\", \"HD\": \"Nome do Produto\" }, \"total\": VALOR_DA_SOMA_TOTAL_DOS_ITENS SELECIONADOS }, { \"categoria\": \"3\", \"componentes\": { \"CPU\": \"Nome do Produto\", \"GPU\": \"Nome do Produto\", \"RAM\": \"Nome do Produto\", \"Fonte\": \"Nome do Produto\", \"placa_mae\": \"Nome do Produto\", \"Cooler\": \"Nome do Produto\", \"HD\": \"Nome do Produto\" }, \"total\": VALOR_DA_SOMA TOTAL_DOS ITENS SELECIONADOS } ] }\n\n";
         $prompt .= "Garanta a integridade e consistência de todas as informações.\n\n";
-        $prompt .= "Softwares selecionados e seus requisitos:\n";
+        $prompt .= "Softwares selecionados:\n";
 
         foreach ($softwares as $software) {
             $prompt .= "- Nome: {$software['nome']}\n";
         }
-        $prompt .= "\nUtilize APENAS os seguintes produtos disponíveis:\n";
-        foreach ($produtos as $produto) {
-
-            $lojaOnline = LojaOnline::find($produto['loja_online_id']);
-            $preco = $lojaOnline->valor ?? 'N/A';
-            $moeda = $lojaOnline->moeda ?? 'BRL';
-            $url = $lojaOnline->urlLoja ?? 'URL não disponível';
-
-            if ($preco !== 'N/A') {
-                $prompt .= "- Nome: {$produto['nome']}, Preço: {$moeda} {$preco}, URL: {$url}\n";
-            } else {
-                Log::warning("Preço não encontrado para o produto ID: {$produto['id']}");
-                $prompt .= "- Nome: {$produto['nome']}, Preço: N/A, URL: {$url}\n";
-            }
-            $prompt .= "\nGaranta que seja passado exatamente o mesmo nome do array\n";
-            $prompt .= "- Nome: {$produto['nome']}, Preço: R$ {$preco}\n";
-        }
-
 
         $prompt .= "\nDicas adicionais:\n";
         $prompt .= "- Sempre serão 7 componentes, CPU,GPU,RAM,Fonte,placa_mae,Cooler,HD.\n";
@@ -159,34 +141,10 @@ class GeminiAPIService
         return redirect()->back()->with('format_error', true);
     }
 
-    public function findProductIdBySimilarity($componentName)
-    {
-        // Busca pelo produto diretamente pelo nome
-        $produto = Produto::where('nome', 'like', "%$componentName%")->first();
-
-        // Se o produto não for encontrado, buscar por nomes semelhantes
-        if (!$produto) {
-            $possiveisProdutos = Produto::all(); // Carrega todos os produtos para comparar similaridade
-
-            if ($possiveisProdutos->isNotEmpty()) {
-                // Usar a função Levenshtein para encontrar o nome mais parecido
-                $produto = $possiveisProdutos->sortBy(function ($produto) use ($componentName) {
-                    return levenshtein($componentName, $produto->nome);
-                })->first();
-
-                if ($produto) {
-                    Log::info("Produto mais semelhante encontrado: '{$produto->nome}'");
-                } else {
-                    Log::warning("Nenhum produto semelhante encontrado para: $componentName");
-                }
-            }
-        }
-
-        return $produto ? $produto->id : null;
-    }
 
     public function calculateTotals($desktops)
     {
+        $processedComponents = []; // Para rastrear componentes já processados
 
         foreach ($desktops as &$desktop) {
             $category = $desktop['categoria'];
@@ -194,38 +152,57 @@ class GeminiAPIService
             $total = 0;
 
             foreach ($components as $key => $componentName) {
-                // Encontrar o ID do produto baseado no nome ou similaridade
-                $productId = $this->findProductIdBySimilarity($componentName);
+                // Determinar o tipo do componente com base na chave
+                $componentType = $this->mapComponentKeyToType($key);
+
+                if (!$componentType) {
+                    Log::warning("Tipo não identificado para o componente: $key ($componentName)");
+                    continue;
+                }
+
+                // Verificar se o componente já foi processado
+                if (isset($processedComponents[$componentName])) {
+                    Log::info("Componente '$componentName' já processado, reutilizando.");
+                    $desktop['componentes'][$key] = $processedComponents[$componentName];
+                    $total += $processedComponents[$componentName]['preco'];
+                    continue;
+                }
+
+                // Busca pelo produto correspondente
+                $productId = $this->findProductIdByTypeAndSimilarity($componentType, $componentName);
 
                 if ($productId) {
                     // Encontrar o produto e o preço associado na tabela loja_online
                     $produto = Produto::find($productId);
                     if ($produto) {
                         $lojaOnline = LojaOnline::find($produto->loja_online_id);
-                        $price = $lojaOnline->valor ?? 0;  // Use o valor da tabela loja_online
+                        $price = $lojaOnline->valor ?? 0;
                         $url = $lojaOnline->urlLoja ?? 'URL não disponível';
 
-                        Log::info("Produto: {$produto->nome}, Preço: {$lojaOnline->moeda} $price, URL: $url");
-
-                        // Adiciona preço e URL ao componente
-                        $desktop['componentes'][$key] = [
+                        $componentDetails = [
                             'nome' => $produto->nome,
                             'preco' => $price,
                             'moeda' => $lojaOnline->moeda,
                             'url' => $url
                         ];
 
+                        Log::info("Produto: {$produto->nome}, Preço: {$lojaOnline->moeda} $price, URL: $url");
+
+                        // Adiciona o componente aos resultados e ao rastreador
+                        $desktop['componentes'][$key] = $componentDetails;
+                        $processedComponents[$componentName] = $componentDetails;
+
                         $total += $price;
                     } else {
                         Log::warning("Produto com ID $productId não encontrado na tabela produtos.");
                     }
                 } else {
-                    Log::warning("Produto não encontrado: $componentName");
+                    Log::warning("Produto não encontrado para o componente: $key ($componentName)");
                 }
             }
 
             Log::info("Total para a categoria $category: $total");
-            $desktop['total'] = $total; // Atualize o total no array $desktops
+            $desktop['total'] = $total; // Atualiza o total no array $desktops
         }
 
         return [
@@ -233,9 +210,45 @@ class GeminiAPIService
         ];
     }
 
+    public function findProductIdByTypeAndSimilarity($componentType, $componentName)
+    {
+        // Busca pelo produto diretamente pelo nome exato e tipo
+        $produto = Produto::where('nome', $componentName)
+            ->where('tipo', $componentType)
+            ->first();
+
+        if (!$produto) {
+            // Se não encontrar pelo nome exato, buscar produtos do mesmo tipo
+            $possiveisProdutos = Produto::where('tipo', $componentType)->get();
+
+            if ($possiveisProdutos->isNotEmpty()) {
+                // Usar Levenshtein para encontrar o nome mais parecido dentro do mesmo tipo
+                $produto = $possiveisProdutos->sortBy(function ($produto) use ($componentName) {
+                    return levenshtein($componentName, $produto->nome);
+                })->first();
+
+                if ($produto) {
+                    Log::info("Produto mais semelhante encontrado: '{$produto->nome}' para o tipo $componentType");
+                }
+            }
+        }
+
+        return $produto ? $produto->id : null;
+    }
+
+    protected function mapComponentKeyToType($key)
+    {
+        $map = [
+            'CPU' => 'CPU',
+            'GPU' => 'GPU',
+            'RAM' => 'RAM',
+            'Fonte' => 'Fonte',
+            'placa_mae' => 'Placa Mãe',
+            'Cooler' => 'Cooler',
+            'HD' => 'HD/SSD',
+        ];
+
+        return $map[$key] ?? null;
+    }
+
 }
-
-
-
-
-

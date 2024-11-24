@@ -165,8 +165,17 @@ class ConjuntoController extends Controller
     public function associarProdutosAoConjunto(Conjunto $conjunto, array $componentes)
     {
         try {
-            foreach ($componentes as $componentDetails) {
-                $productId = $this->geminiAPIService->findProductIdBySimilarity($componentDetails['nome']);
+            foreach ($componentes as $key => $componentDetails) {
+                // Determina o tipo do componente com base na chave
+                $componentType = $this->mapComponentKeyToType($key);
+
+                if (!$componentType) {
+                    Log::warning("Tipo não identificado para o componente: $key ({$componentDetails['nome']})");
+                    continue;
+                }
+
+                // Busca o produto pelo nome e tipo
+                $productId = $this->geminiAPIService->findProductIdByTypeAndSimilarity($componentType, $componentDetails['nome']);
 
                 if ($productId) {
                     $conjunto->produtos()->attach($productId);
@@ -209,6 +218,7 @@ class ConjuntoController extends Controller
             throw $e;
         }
     }
+
 
     public function associarSoftwaresAoConjunto(Conjunto $conjunto, array $softwaresSelecionados)
     {
@@ -342,5 +352,21 @@ class ConjuntoController extends Controller
             Log::warning("Produto ID, valor ou conjunto ID inválidos ao salvar no histórico.");
         }
     }
+
+    protected function mapComponentKeyToType($key)
+    {
+        $map = [
+            'CPU' => 'CPU',
+            'GPU' => 'GPU',
+            'RAM' => 'RAM',
+            'Fonte' => 'Fonte',
+            'placa_mae' => 'Placa Mãe',
+            'Cooler' => 'Cooler',
+            'HD' => 'HD/SSD',
+        ];
+
+        return $map[$key] ?? null;
+    }
+
 
 }

@@ -6,7 +6,7 @@ from scraper.kabum_scraper import KabumScraper
 from scraper.gkinfostore_scraper import GKInfoStoreScraper
 from scraper.settings import urls_para_processar
 
-def processar_paginas(url_base, max_paginas=2, filters=None, max_paginas_sem_produtos=3):
+def processar_paginas(url_base, max_paginas=1, filters=None, max_paginas_sem_produtos=1):
     if "kabum.com.br" in url_base:
         scraper = KabumScraper()
         base_url_with_filters = f"{url_base}?{urlencode(filters)}" if filters else url_base

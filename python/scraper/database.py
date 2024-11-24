@@ -13,8 +13,27 @@ def connect_db():
         logging.error(f"Erro ao conectar ao banco de dados: {e}")
         return None
 
+def identificar_tipo_produto(nome_produto):
+    """Identifica o tipo do produto com base em palavras-chave no nome."""
+    tipos = {
+        "Fonte": ["Fonte", "Fonte Cooler"],
+        "Cooler": ["Cooler", "Water Cooler", "Cooler para Processador"],
+        "GPU": ["Placa de Vídeo", "Placa de Video"],
+        "CPU": ["Processador"],
+        "Placa Mãe": ["Placa Mãe", "Placa MAE"],
+        "RAM": ["Memória", "Memoria"],
+        "HD/SSD": ["SSD"],
+    }
+
+    for tipo, palavras_chave in tipos.items():
+        if any(palavra in nome_produto for palavra in palavras_chave):
+            return tipo
+
+    return "Outros"  # Retorno padrão caso não encontre correspondência
+
+
 def salvar_produtos_no_banco(produtos):
-    """Insere produtos no banco de dados, gerencia duplicatas e atualiza o estoque."""
+    """Insere produtos no banco de dados, incluindo o tipo do produto."""
     if not produtos:
         logging.info("Nenhum produto para salvar.")
         return
@@ -29,6 +48,9 @@ def salvar_produtos_no_banco(produtos):
 
         for produto in produtos:
             try:
+                # Identificar o tipo do produto
+                tipo = identificar_tipo_produto(produto['nome'])
+
                 # Verifica se o produto já existe na tabela loja_online
                 cursor.execute('''
                     SELECT id FROM loja_online WHERE urlLoja = ?
@@ -46,11 +68,11 @@ def salvar_produtos_no_banco(produtos):
                 ''', (produto['link'], produto['preco'], produto['moeda']))
                 loja_online_id = cursor.lastrowid
 
-                # Insere na tabela produtos
+                # Insere na tabela produtos com o tipo identificado
                 cursor.execute('''
-                    INSERT INTO produtos (nome, loja_online_id, disponibilidade, created_at, updated_at)
-                    VALUES (?, ?, ?, datetime('now'), datetime('now'))
-                ''', (produto['nome'], loja_online_id, produto['disponibilidade']))
+                    INSERT INTO produtos (nome, tipo, loja_online_id, disponibilidade, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+                ''', (produto['nome'], tipo, loja_online_id, produto['disponibilidade']))
                 produto_id = cursor.lastrowid
 
                 # Se o produto estiver disponível, insere no estoque
@@ -61,7 +83,7 @@ def salvar_produtos_no_banco(produtos):
                     ''', (produto_id,))
 
                 conn.commit()
-                logging.info(f"Produto {produto['nome']} inserido com sucesso.")
+                logging.info(f"Produto {produto['nome']} inserido com sucesso como {tipo}.")
             except sqlite3.Error as e:
                 logging.error(f"Erro ao inserir produto {produto['nome']}: {e}")
                 conn.rollback()
@@ -69,8 +91,6 @@ def salvar_produtos_no_banco(produtos):
         conn.close()
         logging.info("Conexão com o banco de dados encerrada.")
 
-
-import sqlite3
 
 def salvar_log_no_banco(url, pagina, mensagem):
     conexao = sqlite3.connect(DB_NAME)
